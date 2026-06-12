@@ -1,0 +1,75 @@
+name: "1 — Generate & Sync-Check Audio"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/generate_audio.py"
+      - "scripts/check_audio_sync.py"
+
+jobs:
+  audio:
+    name: Kokoro TTS (am_fenrir) + AI Sync Check
+    runs-on: ubuntu-latest
+    # No timeout — model download + inference takes time
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (ffmpeg + espeak-ng)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+
+      - name: Install Python deps
+        run: |
+          pip install kokoro-onnx soundfile pydub --quiet
+
+      # ── Cache Kokoro model (~103MB) — only downloads once ─────────
+      - name: Cache Kokoro model files
+        id: cache-kokoro
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/kokoro-v1.0.onnx
+            /tmp/voices-v1.0.bin
+          key: kokoro-model-v1.0
+
+      - name: Download Kokoro model (if not cached)
+        if: steps.cache-kokoro.outputs.cache-hit != 'true'
+        run: |
+          BASE="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+          curl -L "$BASE/kokoro-v1.0.onnx" -o /tmp/kokoro-v1.0.onnx
+          curl -L "$BASE/voices-v1.0.bin"  -o /tmp/voices-v1.0.bin
+          echo "Model: $(du -sh /tmp/kokoro-v1.0.onnx | cut -f1)"
+          echo "Voices: $(du -sh /tmp/voices-v1.0.bin | cut -f1)"
+
+      # ── Step 1: Generate all scene audio ─────────────────────────
+      - name: Generate narration audio (Kokoro am_fenrir)
+        run: python scripts/generate_audio.py
+
+      # ── Step 2: AI sync check — auto-re-renders bad scenes ────────
+      - name: AI Audio-Visual Sync Check + Auto Fix
+        run: python scripts/check_audio_sync.py
+
+      # ── Upload artifacts ──────────────────────────────────────────
+      - name: Upload audio assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-assets
+          path: public/audio/
+          retention-days: 30
+
+      - name: Upload sync report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sync-report
+          path: public/audio/sync_report.json
+          retention-days: 14
