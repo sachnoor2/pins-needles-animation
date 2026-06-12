@@ -1,0 +1,57 @@
+name: '0 — MASTER TRIGGER (Native Hindi Narrator)'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  production:
+    name: 'Native Hindi Video Production'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python Deps
+        run: pip install edge-tts --quiet
+
+      - name: Install Node Deps
+        run: npm install
+
+      - name: Generate Audio (Sequential with Delay)
+        run: |
+          mkdir -p public/audio
+          python scripts/generate_audio.py
+
+      - name: Render Madhur Version
+        run: |
+          mkdir -p out
+          npx remotion render src/index.ts BoneConduction out/BoneConduction_MADHUR.mp4 --props='{"audioUrl": "narration_madhur.mp3"}' --codec=h264
+        env:
+          REMOTION_ALLOW_EVAL: true
+
+      - name: Render Swara Version
+        run: |
+          npx remotion render src/index.ts BoneConduction out/BoneConduction_SWARA.mp4 --props='{"audioUrl": "narration_swara.mp3"}' --codec=h264
+        env:
+          REMOTION_ALLOW_EVAL: true
+
+      - name: Upload Final Videos
+        uses: actions/upload-artifact@v4
+        with:
+          name: BoneConduction-Comparisons
+          path: out/BoneConduction_*.mp4
+          if-no-files-found: error
